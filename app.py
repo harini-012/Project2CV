@@ -9,10 +9,24 @@ st.title("Fun AR Filters with Webcam")
 
 st.write("""
 Experience **Augmented Reality (AR)** in real-time!
-Apply Crowns, Glasses, Mustaches, Funny Face Images, and Cartoon Overlays directly on your face using your webcam.
+Apply Crowns, Glasses, Mustaches, Funny Face Images, and Cartoon Overlays directly on your face.
 """)
 
-# Sidebar
+st.markdown("""
+## Why Try Our AR Filters?
+
+<ul>
+<li><strong>Fun & Engagement:</strong> Instantly add filters for a playful experience.</li>
+<li><strong>Creativity Boost:</strong> Experiment with different looks.</li>
+<li><strong>Real-Time Interaction:</strong> See AR effects applied live.</li>
+<li><strong>Learning Opportunity:</strong> Explore computer vision.</li>
+<li><strong>Memory Capture:</strong> Snap and save your creative moments.</li>
+</ul>
+""", unsafe_allow_html=True)
+
+
+# ---------------- Sidebar ----------------
+
 st.sidebar.title("Select Filters / Overlays")
 
 filters = st.sidebar.multiselect(
@@ -21,8 +35,8 @@ filters = st.sidebar.multiselect(
 )
 
 show_face_outline = st.sidebar.checkbox("Highlight My Face")
-
 save_snapshots = st.sidebar.checkbox("Enable Snapshot Saving")
+
 
 funny_face_img_path = None
 cartoon_img_path = None
@@ -39,41 +53,42 @@ if "Cartoon Overlay" in filters:
         ["mickey.png", "motto.png"]
     )
 
-# Create snapshot folder
+
+# ---------------- Snapshot Folder ----------------
+
 if not os.path.exists("snapshots"):
     os.makedirs("snapshots")
 
 
-# Overlay function
+# ---------------- Overlay Function ----------------
+
 def overlay_filter(frame, filter_img, x, y, w, h):
 
     filter_img = cv2.resize(filter_img, (w, h))
 
-    if filter_img.shape[2] < 4:
+    if filter_img.shape[2] != 4:
         return frame
 
-    for i in range(h):
-        for j in range(w):
+    alpha = filter_img[:, :, 3] / 255.0
 
-            if y+i >= frame.shape[0] or x+j >= frame.shape[1]:
-                continue
-
-            alpha = filter_img[i, j, 3] / 255.0
-
-            frame[y+i, x+j] = (
-                alpha * filter_img[i, j, :3] +
-                (1 - alpha) * frame[y+i, x+j]
-            )
+    for c in range(3):
+        frame[y:y+h, x:x+w, c] = (
+            alpha * filter_img[:, :, c] +
+            (1 - alpha) * frame[y:y+h, x:x+w, c]
+        )
 
     return frame
 
 
-# Face detector
+# ---------------- Face Detector ----------------
+
 face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades +
     "haarcascade_frontalface_default.xml"
 )
 
+
+# ---------------- Video Processor ----------------
 
 class VideoProcessor(VideoTransformerBase):
 
@@ -106,7 +121,8 @@ class VideoProcessor(VideoTransformerBase):
             if "Crown" in filters:
                 f_img = cv2.imread("filters/crown.png", cv2.IMREAD_UNCHANGED)
                 if f_img is not None:
-                    img = overlay_filter(img, f_img, x, y-int(h/2), w, int(h/2))
+                    y1 = max(0, y-int(h/2))
+                    img = overlay_filter(img, f_img, x, y1, w, int(h/2))
 
             if "Funny Face Image" in filters and funny_face_img_path:
                 f_img = cv2.imread(f"funny_images/{funny_face_img_path}", cv2.IMREAD_UNCHANGED)
@@ -121,14 +137,16 @@ class VideoProcessor(VideoTransformerBase):
         return img
 
 
-# Start webcam
+# ---------------- Start Webcam ----------------
+
 ctx = webrtc_streamer(
-    key="ar-webcam",
+    key="ar-filters",
     video_processor_factory=VideoProcessor
 )
 
 
-# Snapshot button
+# ---------------- Snapshot Button ----------------
+
 if save_snapshots and ctx.video_processor:
 
     if st.button("📸 Take Snapshot"):
@@ -142,4 +160,3 @@ if save_snapshots and ctx.video_processor:
             cv2.imwrite(filename, frame)
 
             st.success(f"Snapshot saved: {filename}")
-            
