@@ -2,14 +2,17 @@ import streamlit as st
 import cv2
 import numpy as np
 import os
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from datetime import datetime
 
 st.title("Fun AR Filters with Webcam")
 
 st.write("""
 Experience **Augmented Reality (AR)** in real-time!
-Apply Crowns, Glasses, Mustaches, Funny Face Images, and Cartoon Overlays.
+Apply Crowns, Glasses, Mustaches, Funny Face Images, and Cartoon Overlays directly on your face using your webcam.
 """)
 
+# Sidebar
 st.sidebar.title("Select Filters / Overlays")
 
 filters = st.sidebar.multiselect(
@@ -19,7 +22,8 @@ filters = st.sidebar.multiselect(
 
 show_face_outline = st.sidebar.checkbox("Highlight My Face")
 
-# Image selections
+save_snapshots = st.sidebar.checkbox("Enable Snapshot Saving")
+
 funny_face_img_path = None
 cartoon_img_path = None
 
@@ -35,7 +39,12 @@ if "Cartoon Overlay" in filters:
         ["mickey.png", "motto.png"]
     )
 
-# ---------------- Overlay Function ----------------
+# Create snapshot folder
+if not os.path.exists("snapshots"):
+    os.makedirs("snapshots")
+
+
+# Overlay function
 def overlay_filter(frame, filter_img, x, y, w, h):
 
     filter_img = cv2.resize(filter_img, (w, h))
@@ -59,54 +68,78 @@ def overlay_filter(frame, filter_img, x, y, w, h):
     return frame
 
 
-# ---------------- Face Detection ----------------
+# Face detector
 face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades +
     "haarcascade_frontalface_default.xml"
 )
 
-# ---------------- Camera Capture ----------------
-img_file_buffer = st.camera_input("Take a picture")
 
-if img_file_buffer is not None:
+class VideoProcessor(VideoTransformerBase):
 
-    bytes_data = img_file_buffer.getvalue()
-    np_array = np.frombuffer(bytes_data, np.uint8)
+    def __init__(self):
+        self.latest_frame = None
 
-    frame = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+    def transform(self, frame):
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        img = frame.to_ndarray(format="bgr24")
+        self.latest_frame = img.copy()
 
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-    for (x, y, w, h) in faces:
+        for (x, y, w, h) in faces:
 
-        if show_face_outline:
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0,255,0), 2)
+            if show_face_outline:
+                cv2.rectangle(img, (x, y), (x+w, y+h), (0,255,0), 2)
 
-        if "Glasses" in filters:
-            img = cv2.imread("filters/glasses.png", cv2.IMREAD_UNCHANGED)
-            if img is not None:
-                frame = overlay_filter(frame, img, x, y+int(h/4), w, int(h/4))
+            if "Glasses" in filters:
+                f_img = cv2.imread("filters/glasses.png", cv2.IMREAD_UNCHANGED)
+                if f_img is not None:
+                    img = overlay_filter(img, f_img, x, y+int(h/4), w, int(h/4))
 
-        if "Mustache" in filters:
-            img = cv2.imread("filters/mustache.png", cv2.IMREAD_UNCHANGED)
-            if img is not None:
-                frame = overlay_filter(frame, img, x+int(w/4), y+int(h*0.6), int(w/2), int(h/5))
+            if "Mustache" in filters:
+                f_img = cv2.imread("filters/mustache.png", cv2.IMREAD_UNCHANGED)
+                if f_img is not None:
+                    img = overlay_filter(img, f_img, x+int(w/4), y+int(h*0.6), int(w/2), int(h/5))
 
-        if "Crown" in filters:
-            img = cv2.imread("filters/crown.png", cv2.IMREAD_UNCHANGED)
-            if img is not None:
-                frame = overlay_filter(frame, img, x, y-int(h/2), w, int(h/2))
+            if "Crown" in filters:
+                f_img = cv2.imread("filters/crown.png", cv2.IMREAD_UNCHANGED)
+                if f_img is not None:
+                    img = overlay_filter(img, f_img, x, y-int(h/2), w, int(h/2))
 
-        if "Funny Face Image" in filters and funny_face_img_path:
-            img = cv2.imread(f"funny_images/{funny_face_img_path}", cv2.IMREAD_UNCHANGED)
-            if img is not None:
-                frame = overlay_filter(frame, img, x, y, w, h)
+            if "Funny Face Image" in filters and funny_face_img_path:
+                f_img = cv2.imread(f"funny_images/{funny_face_img_path}", cv2.IMREAD_UNCHANGED)
+                if f_img is not None:
+                    img = overlay_filter(img, f_img, x, y, w, h)
 
-        if "Cartoon Overlay" in filters and cartoon_img_path:
-            img = cv2.imread(f"cartoons/{cartoon_img_path}", cv2.IMREAD_UNCHANGED)
-            if img is not None:
-                frame = overlay_filter(frame, img, x, y, w, h)
+            if "Cartoon Overlay" in filters and cartoon_img_path:
+                f_img = cv2.imread(f"cartoons/{cartoon_img_path}", cv2.IMREAD_UNCHANGED)
+                if f_img is not None:
+                    img = overlay_filter(img, f_img, x, y, w, h)
 
-    st.image(frame, channels="BGR")
+        return img
+
+
+# Start webcam
+ctx = webrtc_streamer(
+    key="ar-webcam",
+    video_processor_factory=VideoProcessor
+)
+
+
+# Snapshot button
+if save_snapshots and ctx.video_processor:
+
+    if st.button("📸 Take Snapshot"):
+
+        frame = ctx.video_processor.latest_frame
+
+        if frame is not None:
+
+            filename = f"snapshots/snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
+            cv2.imwrite(filename, frame)
+
+            st.success(f"Snapshot saved: {filename}")
+            
